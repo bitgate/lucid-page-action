@@ -1,0 +1,37 @@
+name: test
+on: push
+
+jobs:
+  publish-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./
+        id: publish
+        with:
+          file: sample/CHANGELOG.md
+          title: 'lucid.page action — sample changelog'
+
+      - name: Verify the page is live
+        env:
+          URL: ${{ steps.publish.outputs.url }}
+        run: |
+          set -euo pipefail
+          echo "Checking $URL"
+          curl -fsS "$URL" | grep -q "lucid.page action sample"
+          echo "✅ Live: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: ./
+        id: ttl
+        with:
+          file: sample/CHANGELOG.md
+          ttl: 3600
+          visibility: unlisted
+
+      - name: Verify ttl publish
+        env:
+          URL: ${{ steps.ttl.outputs.url }}
+        run: |
+          set -euo pipefail
+          curl -fsS "$URL" | grep -q "lucid.page action sample"
