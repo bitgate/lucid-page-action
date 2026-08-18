@@ -1,0 +1,141 @@
+name: 'Publish to lucid.page'
+description: 'Publish Markdown to lucid.page — release notes, docs, and RFCs as gorgeous shareable pages'
+branding:
+  icon: feather
+  color: purple
+
+inputs:
+  file:
+    description: 'Path to the Markdown file to publish'
+    required: true
+  title:
+    description: 'Document title. Default: derived from the Markdown'
+    required: false
+    default: ''
+  visibility:
+    description: 'private, unlisted, or public. Private docs require api-key'
+    required: false
+    default: 'unlisted'
+  ttl:
+    description: 'Document lifetime in seconds (min 60). Default: no expiry'
+    required: false
+    default: ''
+  slug:
+    description: 'Slug of an existing doc to update in place (owner-only). Requires api-key'
+    required: false
+    default: ''
+  api-key:
+    description: 'lucid.page API key (lp_...), pass via secrets. Falls back to the LUCID_API_KEY env var. Optional; raises rate limits and unlocks private docs and updates'
+    required: false
+    default: ''
+
+outputs:
+  url:
+    description: 'URL of the published page'
+    value: ${{ steps.publish.outputs.url }}
+  slug:
+    description: 'Document slug'
+    value: ${{ steps.publish.outputs.slug }}
+
+runs:
+  using: composite
+  steps:
+    - id: publish
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        TITLE: ${{ inputs.title }}
+        VISIBILITY: ${{ inputs.visibility }}
+        TTL: ${{ inputs.ttl }}
+        SLUG_IN: ${{ inputs.slug }}
+        API_KEY_IN: ${{ inputs.api-key }}
+      run: |
+        set -euo pipefail
+        [ -f "$FILE" ] || { echo "::error::file '$FILE' does not exist"; exit 1; }
+        [ -s "$FILE" ] || { echo "::error::file '$FILE' is empty — nothing to publish"; exit 1; }
+
+        API_KEY="${API_KEY_IN:-${LUCID_API_KEY:-}}"
+        BASE="${LUCID_PAGE_BASE_URL:-https://lucid.page}"
+
+        case "$VISIBILITY" in
+          private|unlisted|public) ;;
+          *) echo "::error::invalid visibility '$VISIBILITY' — must be private, unlisted, or public"; exit 1 ;;
+        esac
+        if [ "$VISIBILITY" = "private" ] && [ -z "$API_KEY" ]; then
+          echo "::error::visibility 'private' requires the 'api-key' input"; exit 1
+        fi
+        if [ -n "$TTL" ] && ! [[ "$TTL" =~ ^[0-9]+$ ]]; then
+          echo "::error::invalid ttl '$TTL' — must be an integer number of seconds (min 60)"; exit 1
+        fi
+
+        # A set slug means update-in-place, which is owner-only
+        if [ -n "$SLUG_IN" ]; then
+          [ -n "$API_KEY" ] || { echo "::error::'slug' (updating an existing doc) requires the 'api-key' input"; exit 1; }
+          ENDPOINT="$BASE/$SLUG_IN"
+        else
+          ENDPOINT="$BASE/publish"
+        fi
+
+        AUTH=()
+        [ -n "$API_KEY" ] && AUTH=(-H "Authorization: Bearer $API_KEY")
+
+        BODY=$(mktemp)
+        RESP=$(mktemp)
+        trap 'rm -f "$BODY" "$RESP"' EXIT
+
+        jq -n --rawfile markdown "$FILE" \
+          --arg title "$TITLE" \
+          --arg visibility "$VISIBILITY" \
+          --arg ttl "$TTL" \
+          '{markdown: $markdown}
+           + (if $title == "" then {} else {title: $title} end)
+           + (if $visibility == "" then {} else {visibility: $visibility} end)
+           + (if $ttl == "" then {} else {ttl: ($ttl | tonumber)} end)' > "$BODY"
+
+        CODE=""
+        for attempt in 1 2 3 4; do
+          CODE=$(curl -sS -o "$RESP" -w '%{http_code}' \
+            -X POST "$ENDPOINT" \
+            -H "Content-Type: application/json" \
+            "${AUTH[@]}" \
+            --data-binary @"$BODY")
+          if [ "$CODE" = "429" ] && [ "$attempt" -lt 4 ]; then
+            WAIT=$((20 * attempt))
+            echo "::warning::lucid.page rate limit hit (429) — retrying in ${WAIT}s (attempt $attempt/3)"
+            sleep "$WAIT"
+            continue
+          fi
+          break
+        done
+        case "$CODE" in
+          2*) ;;
+          429) echo "::error::lucid.page rate limit hit (~10 publishes/min/IP anonymous) — retries exhausted. Pass 'api-key' for higher limits"; exit 1 ;;
+          *) echo "::error::lucid.page publish failed (HTTP $CODE): $(cat "$RESP")"; exit 1 ;;
+        esac
+
+        URL=$(jq -r '.url' "$RESP")
+        SLUG=$(jq -r '.slug' "$RESP")
+        EXPIRES=$(jq -r '.expires_at // empty' "$RESP")
+        echo "url=$URL" >> "$GITHUB_OUTPUT"
+        echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### 🪶 lucid.page"
+          echo ""
+          echo "| | |"
+          echo "|---|---|"
+          if [ -n "$SLUG_IN" ]; then
+            echo "| Updated | $URL |"
+          else
+            echo "| Published | $URL |"
+          fi
+          echo "| Slug | \`$SLUG\` |"
+          echo "| Visibility | $VISIBILITY |"
+          if [ -n "$EXPIRES" ]; then echo "| Expires | $EXPIRES |"; fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ -n "$SLUG_IN" ]; then
+          echo "Updated $URL"
+        else
+          echo "Published $URL"
+        fi
