@@ -1,6 +1,8 @@
 # lucid.page action
 
-Publish Markdown to [lucid.page](https://lucid.page) from CI — release notes, docs, and RFCs, typeset beautifully and returned as a shareable URL. No account required.
+Publish Markdown to [lucid.page](https://lucid.page) from CI — release notes, docs, and RFCs, typeset beautifully and returned as a shareable URL. No account required for anonymous publishing.
+
+Lucid also provides a signed-in Personal + Projects wiki. This Action is the retained standalone publishing integration, not a project-management, invitation or wiki-import client. Creating a page here does not place it in a project.
 
 ## Usage
 
@@ -23,7 +25,7 @@ The snippet above needs **no account** — anonymous publishing is the default:
 
 Want higher limits, private documents, or the ability to update a page in place? **[Create an account →](https://lucid.page/dashboard)**, mint an API key, and pass it as `api-key` (or set the `LUCID_API_KEY` env var once at workflow level):
 
-- 120 publishes/min per account.
+- Active subscriptions remove the additional free-account IP limit; the account limit is 120/min, subject to shared service admission limits.
 - `visibility: private` — owner-only pages, gated and uncached.
 - `slug:` — update a document you own, keeping its URL.
 
@@ -70,7 +72,7 @@ Publish once with an API key, keep the slug, and every subsequent run updates th
     api-key: ${{ secrets.LUCID_API_KEY }}
 ```
 
-(Stash the slug from the first run's `slug` output in a repo variable; updates are owner-only, hence the key.)
+Stash the slug from the first run's `slug` output in a repo variable. This Action supports updating your standalone pages. If you move the page into a project, its updates require `expected_version`, which this Action does not send; use the workspace editor instead. An API key is not a project collaboration feature.
 
 ## Inputs
 
@@ -93,7 +95,7 @@ Publish once with an API key, keep the slug, and every subsequent run updates th
 ## Notes
 
 - Documents never expire unless `ttl` is set — ephemeral or evergreen, your call.
-- Rate limit: ~10 publishes/min per IP anonymous, 120/min with an API key. On 429 the action retries 3× with increasing backoff before failing.
+- Anonymous and free-account publishes retain the ~10/min IP limit. Authenticated accounts also have a 120/min account limit; shared admission budgets may reject earlier. An API key alone does not remove free-plan limits. On 429 the action retries 3× with increasing backoff before failing.
 - The publish body is capped at 1 MB.
 - Every run writes the URL, slug, and visibility to the job summary automatically.
 - `LUCID_PAGE_BASE_URL` overrides the endpoint (staging/self-hosted). Default: `https://lucid.page`.

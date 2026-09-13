@@ -6,6 +6,12 @@ Scratchpad for Kevin. Not public-facing docs — see README.md for those.
 
 GitHub Action publishing Markdown to lucid.page (`POST /publish`, or `POST /<slug>` with Bearer for owner updates). Composite, pure bash + curl + jq (both preinstalled on GitHub runners). Sibling: bitgate/ship-page-action (same shape, brash brand, chunking — lucid needs none, 1 MB single-request cap).
 
+## Product scope, reconciled 2026-09-13
+
+- Parent product pivoted to a hosted browser-native Personal + Projects wiki, useful alone and collaboratively, retaining instant publishing. Canonical decisions: bitgate/lucid.page `PRODUCT.md`; tracker #133. This Action remains a publishing integration, not the entire product or a wiki-management client.
+- `action.yml` creates standalone pages and sends no project/scope or `expected_version`. Existing pages moved into a project require that version on save and therefore cannot be updated by this Action. Do not advertise project automation/invitations/import or silently expand credentials. README now states this boundary; Action code and v1 tags unchanged.
+- API key alone does not remove free-account IP limits; active subscription is checked by the parent publishing gate. Shared global admission also applies.
+
 ## State
 
 - v1.0.0 + v1 annotated tags on the scaffold commit. Marketplace listing: Bart does manually.
